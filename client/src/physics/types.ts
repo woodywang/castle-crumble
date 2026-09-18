@@ -18,6 +18,13 @@ export interface BlockDef {
   angle?: number;
 }
 
+/** 地形：两城之间的山（静态凸多边形，顶点顺时针，世界坐标） */
+export interface TerrainDef {
+  vertices: { x: number; y: number }[];
+  /** 雪顶高度（渲染用，0 = 无雪） */
+  snowFrom?: number;
+}
+
 export interface LevelDef {
   id: string;
   name: string;
@@ -29,6 +36,8 @@ export interface LevelDef {
   mode: 'demolish' | 'duel';
   /** 随机种子：多人时两端必须一致，保证碎片 / 爆炸的随机量相同 */
   seed: number;
+  /** 可选地形（山体等静态障碍） */
+  terrain?: TerrainDef[];
   blocks: BlockDef[];
   ammo: Record<WeaponId, number>;
 }

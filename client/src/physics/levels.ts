@@ -1,4 +1,4 @@
-import type { BlockDef, LevelDef, Side, ThemeId } from './types';
+import type { BlockDef, LevelDef, Side, TerrainDef, ThemeId } from './types';
 import type { Material } from './config';
 import { PHYS } from './config';
 
@@ -94,6 +94,19 @@ const fullAmmo = () => ({
   freeze: PHYS.weapons.freeze.ammo, gravity: PHYS.weapons.gravity.ammo, blast: PHYS.weapons.blast.ammo,
 });
 
+/** 两城之间的山：一个带平顶的梯形，顶点顺时针 */
+function mountain(centerX: number, groundY: number, baseHalfWidth: number, height: number, topHalfWidth = 40): TerrainDef {
+  return {
+    vertices: [
+      { x: centerX - baseHalfWidth, y: groundY + 2 },
+      { x: centerX - topHalfWidth, y: groundY - height },
+      { x: centerX + topHalfWidth, y: groundY - height },
+      { x: centerX + baseHalfWidth, y: groundY + 2 },
+    ],
+    snowFrom: groundY - height + 70,
+  };
+}
+
 /* ---------- 关卡：双城对轰（主模式） ---------- */
 
 export function buildDuelLevel(theme: ThemeId = 'stone', seed = 1): LevelDef {
@@ -110,6 +123,8 @@ export function buildDuelLevel(theme: ThemeId = 'stone', seed = 1): LevelDef {
     groundY,
     mode: 'duel',
     seed,
+    // 中间一座山：底宽 560、高 340，直射必被挡住，必须抛高弧线越过山头
+    terrain: [mountain(width / 2, groundY, 280, 340)],
     // 骑士（国王）站在各自城堡的前塔顶上：前塔 5 层砖 + 木梁 → 梁顶 = groundY - 220
     spawn: {
       left: { x: 30 + 400, y: groundY - 220 - PHYS.knight.height / 2 - 1 },

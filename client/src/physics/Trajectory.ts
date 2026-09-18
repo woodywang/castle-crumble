@@ -10,7 +10,7 @@ import { PHYS } from './config';
  */
 export function predictTrajectory(
   x: number, y: number, vx: number, vy: number,
-  opts: { steps?: number; groundY: number; frictionAir?: number },
+  opts: { steps?: number; groundY: number; frictionAir?: number; isBlocked?: (x: number, y: number) => boolean },
 ): { x: number; y: number }[] {
   const dt = PHYS.timeStepMs;
   const gravityPerStep = PHYS.gravityY * 0.001 * dt * dt; // Matter 默认 gravity.scale = 0.001
@@ -25,6 +25,7 @@ export function predictTrajectory(
     py += cvy;
     if (py > opts.groundY) break;
     pts.push({ x: px, y: py });
+    if (opts.isBlocked?.(px, py)) break; // 撞到山体等地形
   }
   return pts;
 }

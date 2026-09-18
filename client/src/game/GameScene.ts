@@ -243,20 +243,37 @@ export class GameScene extends Phaser.Scene {
     g.fillGradientStyle(theme.sky[0], theme.sky[0], theme.sky[1], theme.sky[1], 1);
     g.fillRect(0, 0, width, height);
     g.fillStyle(0xffffff, 0.85);
-    for (const [cx, cy, s] of [[180, 110, 1], [520, 70, 0.8], [900, 130, 1.2], [1150, 60, 0.7]]) {
+    for (const [cx, cy, s] of [[180, 110, 1], [520, 70, 0.8], [900, 130, 1.2], [1250, 60, 0.7], [1600, 120, 1], [1820, 80, 0.8]]) {
       g.fillCircle(cx, cy, 28 * s); g.fillCircle(cx + 30 * s, cy - 10 * s, 36 * s); g.fillCircle(cx + 65 * s, cy, 26 * s);
       g.fillRect(cx - 10 * s, cy, 90 * s, 26 * s);
     }
     g.fillStyle(theme.hill, 0.6);
     g.fillEllipse(200, this.level.groundY + 40, 700, 260);
-    g.fillEllipse(900, this.level.groundY + 60, 900, 300);
+    g.fillEllipse(width * 0.5, this.level.groundY + 60, 1100, 320);
+    g.fillEllipse(width - 200, this.level.groundY + 40, 700, 260);
     g.fillStyle(theme.ground, 1);
     g.fillRect(0, this.level.groundY, width, height - this.level.groundY);
     g.fillStyle(0x000000, 0.12);
     g.fillRect(0, this.level.groundY, width, 6);
-    if (this.isDuel) {
-      g.lineStyle(2, 0xffffff, 0.25);
-      for (let y = this.level.groundY + 12; y < height; y += 16) g.lineBetween(width / 2, y, width / 2, y + 8);
+    // 地形（山体）：岩石色 + 雪顶 + 描边
+    for (const t of this.level.terrain ?? []) {
+      const pts = t.vertices.map((v) => new Phaser.Geom.Point(v.x, v.y));
+      g.fillStyle(0x7f8c8d, 1).fillPoints(pts, true);
+      g.lineStyle(4, 0x4d5656, 1).strokePoints(pts, true);
+      if (t.snowFrom !== undefined) {
+        // 雪顶：取山体在 snowFrom 以上的部分（梯形顶部再切一刀）
+        const top = t.vertices.filter((v) => v.y < t.snowFrom!);
+        if (top.length >= 2) {
+          const left = t.vertices[0], right = t.vertices[t.vertices.length - 1];
+          const lerp = (a: { x: number; y: number }, b: { x: number; y: number }, yy: number) => ({ x: a.x + ((b.x - a.x) * (yy - a.y)) / (b.y - a.y), y: yy });
+          const snow = [lerp(left, top[0], t.snowFrom), ...top, lerp(right, top[top.length - 1], t.snowFrom)];
+          g.fillStyle(0xffffff, 0.95).fillPoints(snow.map((v) => new Phaser.Geom.Point(v.x, v.y)), true);
+        }
+      }
+      // 岩石纹理
+      g.lineStyle(2, 0x5d6d7e, 0.5);
+      const cx = (t.vertices[0].x + t.vertices[3].x) / 2;
+      for (let i = 0; i < 6; i++) { const yy = t.vertices[0].y - 40 - i * 45; const w = 60 + i * 10; g.lineBetween(cx - w + (i % 2) * 30, yy, cx - w + 40 + (i % 2) * 30, yy - 12); }
     }
     const title = this.isOnline ? `${this.level.name} · 房间 ${this.net?.room?.code ?? ''}` : this.level.name;
     this.add.text(width / 2, 22, title, { fontFamily: 'sans-serif', fontSize: '18px', color: '#ffffff', stroke: '#2c3e50', strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(5);
@@ -460,7 +477,7 @@ export class GameScene extends Phaser.Scene {
       case 'aiThinking':
         if (elapsed >= PHYS.duel.aiThinkMs && this.enemy) {
           const king = this.world.getKnight(this.mySide);
-          this.aiPlan = planAiShot(this.enemy.handX, this.enemy.handY, -1, this.world.blocksOf(this.mySide), this.level.groundY, king?.alive ? king.body.position : null);
+          this.aiPlan = planAiShot(this.enemy.handX, this.enemy.handY, -1, this.world.blocksOf(this.mySide), this.level.groundY, king?.alive ? king.body.position : null, (x, y) => this.world.isInsideTerrain(x, y));
           if (!this.aiPlan) { this.setPhase('switching'); break; }
           this.enemy.aimAngle = this.aiPlan.angle;
           this.enemy.facing = -1;
@@ -532,7 +549,7 @@ export class GameScene extends Phaser.Scene {
     return predictTrajectory(
       shooter.handX, shooter.handY,
       Math.cos(shooter.aimAngle) * speed, Math.sin(shooter.aimAngle) * speed,
-      { groundY: this.level.groundY, frictionAir: def.frictionAir, steps: 140 },
+      { groundY: this.level.groundY, frictionAir: def.frictionAir, steps: 200, isBlocked: (x, y) => this.world.isInsideTerrain(x, y) },
     );
   }
 

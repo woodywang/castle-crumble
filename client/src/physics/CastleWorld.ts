@@ -3,6 +3,16 @@ import { CATEGORY, PHYS, SIDE_GROUP, type WeaponId } from './config';
 import type { Block, Fragment, GravityWell, Knight, LevelDef, Projectile, Side, WorldEvents, WorldStats } from './types';
 import type { WorldSnapshot } from '../net/protocol';
 
+/** 射线法：点是否在多边形内 */
+export function pointInPolygon(x: number, y: number, poly: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 /** mulberry32：小而确定的伪随机数生成器，多人两端用同一种子 → 同一序列 */
 function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -97,6 +107,25 @@ export class CastleWorld {
     const wallL = Bodies.rectangle(-60, 0, 100, 4000, { isStatic: true, label: 'wall', collisionFilter: { category: CATEGORY.GROUND, mask: 0xffff } });
     const wallR = Bodies.rectangle(width + 60, 0, 100, 4000, { isStatic: true, label: 'wall', collisionFilter: { category: CATEGORY.GROUND, mask: 0xffff } });
     World.add(this.engine.world, [tag(ground), tag(wallL), tag(wallR)]);
+    // 地形（山体）：静态凸多边形
+    for (const t of this.level.terrain ?? []) {
+      const cx = t.vertices.reduce((s, v) => s + v.x, 0) / t.vertices.length;
+      const cy = t.vertices.reduce((s, v) => s + v.y, 0) / t.vertices.length;
+      const body = Bodies.fromVertices(cx, cy, [t.vertices.map((v) => ({ x: v.x, y: v.y }))], {
+        isStatic: true, label: 'terrain', friction: 0.9, restitution: 0.05,
+        collisionFilter: { category: CATEGORY.GROUND, mask: 0xffff },
+      });
+      // fromVertices 会把质心放到 (cx, cy)，需要把 body 挪回让顶点与定义重合
+      const b = body.bounds, minX = Math.min(...t.vertices.map((v) => v.x)), minY = Math.min(...t.vertices.map((v) => v.y));
+      Body.translate(body, { x: minX - b.min.x, y: minY - b.min.y });
+      World.add(this.engine.world, tag(body));
+    }
+  }
+
+  /** 点是否在地形内部（预瞄线 / AI 弹道用） */
+  isInsideTerrain(x: number, y: number): boolean {
+    for (const t of this.level.terrain ?? []) if (pointInPolygon(x, y, t.vertices)) return true;
+    return false;
   }
 
   /** 砖块 id → 关卡定义，供多人和解时「复活」本地误毁的砖块 */
@@ -327,6 +356,11 @@ export class CastleWorld {
         if (kb) knightDmg(kb, a);
       }
 
+      // 撞到山体：弹体直接失效（炸弹等就地触发、炮弹撞碎），山才是真正的硬阻挡，
+      // 否则圆球会顺着坡面「滑」上去翻过山顶。
+      if (pa && b.label === 'terrain') { this.hitTerrain(pa, contact.x, contact.y); continue; }
+      if (pb && a.label === 'terrain') { this.hitTerrain(pb, contact.x, contact.y); continue; }
+
       // 特殊弹体触发（只在第一次接触时）
       if (pa && !pa.triggered) this.triggerProjectile(pa, contact.x, contact.y);
       if (pb && !pb.triggered) this.triggerProjectile(pb, contact.x, contact.y);
@@ -340,6 +374,14 @@ export class CastleWorld {
     let x = 0, y = 0, n = 0;
     for (const c of list) { if (!c?.vertex) continue; x += c.vertex.x; y += c.vertex.y; n++; }
     return n ? { x: x / n, y: y / n } : null;
+  }
+
+  private hitTerrain(p: Projectile, x: number, y: number) {
+    if (!this.projectiles.has(p.id)) return;
+    const def = PHYS.weapons[p.weapon];
+    if (!p.triggered && (def.explosion || def.freeze || def.gravityWell)) { this.triggerProjectile(p, x, y); return; }
+    this.emit('impact', x, y, 0.8);
+    this.removeProjectile(p);
   }
 
   private triggerProjectile(p: Projectile, x: number, y: number) {

@@ -50,7 +50,7 @@ export const PHYS = {
   constraintIterations: 2,
 
   /** 世界尺寸（逻辑坐标，渲染会按比例缩放） */
-  world: { width: 1280, height: 720 },
+  world: { width: 1920, height: 720 },
 
   ground: { friction: 1, restitution: 0 },
 

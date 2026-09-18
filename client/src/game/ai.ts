@@ -13,6 +13,7 @@ export function planAiShot(
   fromX: number, fromY: number, dir: 1 | -1,
   targets: Block[], groundY: number,
   enemyKing?: { x: number; y: number } | null,
+  isBlocked?: (x: number, y: number) => boolean,
 ): AiShot | null {
   if (!targets.length && !enemyKing) return null;
 
@@ -38,7 +39,7 @@ export function planAiShot(
       const angle = (deg * Math.PI) / 180;
       const vx = Math.cos(angle) * speed * dir;
       const vy = Math.sin(angle) * speed;
-      const pts = predictTrajectory(fromX, fromY, vx, vy, { groundY, frictionAir: def.frictionAir, steps: 160 });
+      const pts = predictTrajectory(fromX, fromY, vx, vy, { groundY, frictionAir: def.frictionAir, steps: 220, isBlocked });
       let dist = Infinity;
       for (const p of pts) {
         // 弹道越过目标 x 后的点不再考虑（会撞到目标前方的结构）
