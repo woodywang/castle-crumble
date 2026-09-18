@@ -30,6 +30,7 @@ export async function attachGameServer(httpServer: HttpServer): Promise<IO> {
   });
 
   let store: RoomStore = new MemoryRoomStore();
+  let usingRedis = false;
   const redisUrl = process.env.REDIS_URL ?? process.env.KV_URL;
   if (redisUrl) {
     try {
@@ -40,6 +41,7 @@ export async function attachGameServer(httpServer: HttpServer): Promise<IO> {
       await Promise.all([pub.connect(), sub.connect()]);
       io.adapter(createAdapter(pub, sub));
       store = new RedisRoomStore(pub);
+      usingRedis = true;
       console.log('[castle-crumble] Redis room store + adapter enabled');
     } catch (err) {
       console.error('[castle-crumble] Redis init failed, falling back to memory:', err);
@@ -75,7 +77,11 @@ export async function attachGameServer(httpServer: HttpServer): Promise<IO> {
     socket.on('room:join', async ({ code, playerId, name, skinId }, cb) => {
       code = String(code ?? '').trim().toUpperCase();
       const room = await store.get(code);
-      if (!room) return cb({ ok: false, error: '房间不存在' });
+      if (!room) {
+        // 无 Redis 时，房间只存在于创建它的那个函数实例内存里；另一实例上的玩家看不到
+        const hint = !usingRedis && process.env.VERCEL ? '（服务器未配置 Redis，多实例间不共享房间，请给 Vercel 项目加 REDIS_URL）' : '';
+        return cb({ ok: false, error: '房间不存在' + hint });
+      }
       const existing = room.players.find((p) => p.playerId === playerId);
       if (!existing) {
         if (room.started) return cb({ ok: false, error: '游戏已开始' });
