@@ -48,13 +48,44 @@
       <button id="btn-duel" class="primary">⚔️ 双城对轰 · 对战 AI</button>
       <button id="btn-single" class="secondary">训练：拆城堡</button>
       <div class="row">
-        <button id="btn-create" disabled title="第 2 步实现">创建房间</button>
-        <input id="room-input" placeholder="房间号" disabled />
-        <button id="btn-join" disabled title="第 2 步实现">加入房间</button>
+        <button id="btn-create">创建房间</button>
+        <input id="room-input" placeholder="房间号" maxlength="4" autocapitalize="characters" />
+        <button id="btn-join">加入房间</button>
       </div>
-      <p class="note">多人对轰房间将在第 2 步接入（Socket.io 权威物理）。</p>
+      <p class="note" id="menu-note">在线对轰：创建房间后把 4 位房间号发给朋友。</p>
     </div>
   </div>
+
+  <!-- 房间大厅 -->
+  <div id="lobby" class="modal" hidden>
+    <div class="card lobby">
+      <h2>房间 <span id="lobby-code" class="code"></span></h2>
+      <p class="sub" id="lobby-status">等待对手加入…</p>
+      <ul id="lobby-players" class="players"></ul>
+      <div class="chat" id="lobby-chat">
+        <div class="chat-log" id="lobby-chat-log"></div>
+        <div class="chat-emotes" id="lobby-emotes"></div>
+        <form class="chat-form" id="lobby-chat-form">
+          <input id="lobby-chat-input" placeholder="说点什么…" maxlength="120" autocomplete="off" />
+          <button type="submit">发送</button>
+        </form>
+      </div>
+      <div class="row">
+        <button id="btn-start" class="primary" disabled>开始对战</button>
+        <button id="btn-lobby-leave">离开</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 游戏内聊天（在线对战） -->
+  <div id="game-chat" hidden>
+    <div class="chat-log" id="game-chat-log"></div>
+    <div class="chat-emotes" id="game-emotes"></div>
+    <form class="chat-form" id="game-chat-form">
+      <input id="game-chat-input" placeholder="聊天…" maxlength="120" autocomplete="off" />
+    </form>
+  </div>
+  <div id="net-status" hidden></div>
 
   <!-- 结算 -->
   <div id="result" class="modal" hidden>

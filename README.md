@@ -6,7 +6,7 @@
 当前模式：
 - **双城对轰 · 对战 AI**（主模式，回合制）：玩家在左、AI 在右，轮流开火
 - **训练 · 拆城堡**：单人限弹药拆一座城堡
-- 多人房间对轰 / 合作：第 2 步接入（同一套双城结构 + Socket.io 权威物理）
+- **在线对轰（2 人）**：创建房间 → 把 4 位房间号给朋友 → 加入 → 房主开始。带大厅、文字聊天 + 表情、断线重连
 
 ## 技术栈
 
@@ -15,7 +15,7 @@
 | 前端 | Vite + TypeScript + Phaser 3（仅渲染/输入，不使用其内置物理） |
 | 物理 | Matter.js —— `client/src/physics/CastleWorld.ts` 是纯 Matter 实现，不依赖 Phaser，可直接在 Node 服务器上跑权威物理 |
 | UI | 原生 HTML/CSS overlay（`client/index.html` + `client/src/ui`） |
-| 多人 | Node.js + Socket.io（`server/`），房间状态存内存 |
+| 多人 | Socket.IO 跑在 **Vercel Function**（`api/socket.ts`，WebSocket 传输）；本地开发用 `server/` 同一份代码起 Node 服务。房间状态：有 `REDIS_URL` 时存 Redis（跨实例），否则存内存 |
 
 ## 目录结构
 
@@ -38,12 +38,18 @@ castle-crumble/
 │     │  ├─ InputController.ts #   PC 键鼠 + 手机虚拟摇杆/触屏蓄力，统一成「输入意图」
 │     │  ├─ Effects.ts         #   粒子、震屏、WebAudio 合成占位音效
 │     │  └─ textures.ts        #   程序化生成占位贴图（4 色骑士皮肤、弹体、粒子）
-│     ├─ net/
-│     │  └─ protocol.ts        # Socket.io 消息协议类型（client / server 共用）
 │     └─ ui/                   # HTML HUD / 菜单 / 结算
-├─ server/
-│  └─ src/index.ts             # Socket.io 多人服务（房间制，第 2 步补齐权威物理与同步）
-└─ package.json                # npm workspaces
+│     ├─ net/
+│     │  ├─ protocol.ts        # Socket.IO 消息协议类型 + 快照格式（client / server 共用）
+│     │  └─ NetClient.ts       # 客户端封装：持久 playerId、自动重连 + 补拉事件
+├─ api/
+│  └─ socket.ts                # ★ Vercel Function 入口（Socket.IO over WebSocket）
+├─ server/src/
+│  ├─ gameServer.ts            # 房间 / 座位 / 事件中继（带 seq）/ 聊天 / 重连补拉 —— 不跑物理
+│  ├─ roomStore.ts             # 房间存储：Memory（单实例）/ Redis（Vercel 多实例）
+│  └─ index.ts                 # 本地开发运行器（:3002），与 api/socket.ts 共用 gameServer
+├─ vercel.json                 # 前端静态 + /api/socket/* rewrite 到函数，maxDuration 300s
+└─ package.json                # npm workspaces；根依赖供 Vercel 函数使用
 ```
 
 ## 本地启动
@@ -62,13 +68,13 @@ npm run dev:client
 
 打开 http://localhost:5173 。手机在同一局域网下访问终端打印的 `Network:` 地址即可（Vite 已加 `--host`）。
 
-多人服务（第 2 步接入客户端；现在可启动并验证 `GET /health`）：
+多人中继服务（本地开发；前端 dev 模式通过 `client/.env.development` 里的 `VITE_SOCKET_URL` 连它）：
 
 ```bash
 npm run dev:server
 ```
 
-默认端口 3001，可用环境变量 `PORT` 覆盖。
+默认端口 3002，可用环境变量 `PORT` 覆盖。两个浏览器窗口即可自测（注意：同源标签共享 localStorage 里的 playerId，第二个窗口请用隐身模式或另一浏览器）。
 
 类型检查 / 打包：
 
@@ -76,6 +82,32 @@ npm run dev:server
 npm run typecheck
 npm run build     # 产物在 client/dist，直接静态托管
 ```
+
+## 部署（纯 Vercel）
+
+前端与多人函数在同一个 Vercel 项目里：
+
+```bash
+vercel --prod
+```
+
+- `vercel.json`：`buildCommand` 打前端到 `client/dist`；`/api/socket/(.*)` rewrite 到 `api/socket.ts`；函数 `maxDuration` 300s。
+- WebSocket 需要 Fluid compute（2025-04 之后新建的项目默认开启）。
+- **多实例**：Vercel 不同 Function 实例不共享内存，两个玩家可能落到不同实例。到 Vercel Marketplace 加一个 Redis（Upstash 等），把连接串配成环境变量 `REDIS_URL`，服务会自动切换到 Redis 房间存储 + Socket.IO Redis adapter。没配时只有落到同一实例的玩家能互相看到（低流量时通常如此）。
+- 函数到达最大时长会切断连接：客户端自动重连并用 `lastSeq` 补拉漏掉的事件，对局不中断。
+
+## 多人同步模型（确定性锁步 + 房主快照和解）
+
+服务器不跑物理。两端客户端各自运行同一份 `CastleWorld`（同种子、同步长），只转发「开火」事件；房主在每次回合切换时广播一份全精度快照，客人据此对齐。为了做到两端逐字节一致，踩过并修掉的坑：
+
+1. **瞄准阶段暂停物理步进**：世界静止时多跑几步也会改变骑士/砖块的微抖动相位，开火后被混沌放大成完全不同的崩塌。两端都在 `aim` 阶段不 step，开火事件就一定在同一状态上应用。
+2. **快照不能四舍五入**：角度差 0.005 rad 在 260px 横梁两端就是 0.65px，会「插进」柱子被求解器弹开。
+3. **套用快照后清接触缓存**（`Pairs.clear`）：Matter 求解器用上一帧接触冲量热启动，瞬移后旧冲量会把结构踢倒。
+4. **等世界完全静止再切回合 / 打快照**（`isSettled`，带超时兜底），并清掉纯表现的碎片。
+5. **爆炸不用随机数**；随机只留给碎片这类不影响砖块的表现物。
+6. **统一刚体数组顺序**（按 gameId 排序）并支持按快照复活本地误毁的砖块，作为跨浏览器浮点差异的兜底。
+
+实测两个 Chromium 标签对局三回合，客人端在每次套用快照前与房主的最大位置差为 0、HP 差为 0。
 
 ## 玩法与操作
 
@@ -114,5 +146,5 @@ npm run build     # 产物在 client/dist，直接静态托管
 ## 路线图
 
 - [x] 第 1 步：项目结构 + 双城对轰（vs AI）+ 训练拆城堡（本版本）
-- [ ] 第 2 步：多人房间 + 服务器权威物理 + 快照同步（2 人 PvP 对轰 / 4 人合作）+ 文字聊天与表情
-- [ ] 第 3 步：UI 打磨、手机操作优化、更多关卡与主题（木头哨塔 / 沙漠泥砖 / 冰雪堡垒）
+- [x] 第 2 步：多人房间 + 2 人在线对轰（确定性锁步 + 房主快照和解）+ 文字聊天与表情 + 断线重连，纯 Vercel 部署
+- [ ] 第 3 步：UI 打磨、手机操作优化、更多关卡与主题（木头哨塔 / 沙漠泥砖 / 冰雪堡垒）、4 人合作模式

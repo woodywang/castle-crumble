@@ -27,6 +27,8 @@ export interface LevelDef {
   spawn: Partial<Record<Side, { x: number; y: number }>>;
   /** 对战模式：两座城堡；单城模式：只有 right 有城堡 */
   mode: 'demolish' | 'duel';
+  /** 随机种子：多人时两端必须一致，保证碎片 / 爆炸的随机量相同 */
+  seed: number;
   blocks: BlockDef[];
   ammo: Record<WeaponId, number>;
 }
@@ -83,6 +85,8 @@ export interface GravityWell {
 export interface WorldEvents {
   blockDamaged: (block: Block, damage: number, x: number, y: number) => void;
   blockDestroyed: (block: Block, x: number, y: number) => void;
+  /** 多人和解：本地已毁但房主仍在的砖块被重建 */
+  blockRevived: (block: Block) => void;
   explosion: (x: number, y: number, radius: number, weapon: WeaponId) => void;
   freeze: (x: number, y: number, radius: number) => void;
   gravityWell: (well: GravityWell) => void;

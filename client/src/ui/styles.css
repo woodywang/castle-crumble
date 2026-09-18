@@ -75,3 +75,33 @@ button:not(:disabled):active { transform: translateY(2px); }
 .skin.active { border-color: var(--ink); transform: scale(1.12); }
 #result-stats { list-style: none; padding: 0; margin: 8px 0 16px; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 15px; }
 #result-stats b { float: right; }
+
+/* ---------- 房间大厅 / 聊天 ---------- */
+.card.lobby { width: min(480px, 94vw); }
+.code { font-family: ui-monospace, Menlo, monospace; letter-spacing: 4px; background: var(--ink); color: #ffe066; padding: 2px 10px; border-radius: 8px; }
+.players { list-style: none; padding: 0; margin: 0 0 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.players li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: rgba(0,0,0,.06); font-weight: 700; text-align: left; }
+.players li.empty { opacity: .5; font-weight: 400; }
+.players .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.players .tag { font-size: 11px; opacity: .7; margin-left: auto; }
+.players li.offline { opacity: .6; }
+.chat { text-align: left; margin-bottom: 12px; }
+.chat-log { height: 120px; overflow-y: auto; background: rgba(0,0,0,.06); border-radius: 10px; padding: 6px 10px; font-size: 13px; line-height: 1.5; }
+.chat-log .msg b { color: var(--ink); }
+.chat-log .msg.sys { opacity: .6; font-style: italic; }
+.chat-emotes { display: flex; gap: 6px; margin: 6px 0; }
+.chat-emotes button { padding: 2px 8px; font-size: 18px; border-width: 2px; border-radius: 8px; background: #fff; }
+.chat-form { display: flex; gap: 6px; }
+.chat-form input { flex: 1; width: auto; }
+.chat-form button { padding: 6px 12px; font-size: 14px; }
+
+#game-chat { position: fixed; right: 12px; bottom: max(14px, env(safe-area-inset-bottom)); width: min(300px, 46vw); color: #fff; pointer-events: auto; z-index: 5; }
+#game-chat .chat-log { height: 90px; background: rgba(0,0,0,.45); color: #fff; }
+#game-chat .chat-log .msg b { color: #ffe066; }
+#game-chat .chat-emotes button { background: rgba(0,0,0,.5); border-color: rgba(255,255,255,.6); }
+#game-chat .chat-form input { background: rgba(0,0,0,.5); color: #fff; border-color: rgba(255,255,255,.6); font-size: 13px; padding: 6px 8px; }
+body.touch #game-chat { width: 42vw; }
+body.touch #game-chat .chat-log { height: 60px; }
+
+#net-status { position: fixed; top: 44px; left: 50%; transform: translateX(-50%); background: rgba(231,76,60,.9); color: #fff; padding: 6px 14px; border-radius: 10px; font-weight: 700; z-index: 20; font-size: 13px; }
+#net-status[hidden] { display: none; }

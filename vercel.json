@@ -3,5 +3,16 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": "client/dist",
-  "framework": null
+  "framework": null,
+  "functions": {
+    "api/socket.ts": {
+      "maxDuration": 300
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/socket/(.*)",
+      "destination": "/api/socket"
+    }
+  ]
 }

@@ -134,6 +134,8 @@ export const PHYS = {
     aiChargeMs: 1000,          // AI 蓄力表演时间
     aiAngleNoiseDeg: 4,        // AI 瞄准误差（越小越准）
     unlimitedWeapons: ['cannon', 'bomb'] as WeaponId[], // 对战中无限弹药的武器
+    /** 判定「世界完全静止」的速度阈值（像素/步、弧度/步）与最长等待（防止抖动砖块卡住回合） */
+    settle: { linear: 0.5, angular: 0.03, maxWaitMs: 6000 },
   },
 
   /** 蓄力：从 0 到满蓄力所需时间 */

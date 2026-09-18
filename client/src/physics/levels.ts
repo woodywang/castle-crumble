@@ -96,7 +96,7 @@ const fullAmmo = () => ({
 
 /* ---------- 关卡：双城对轰（主模式） ---------- */
 
-export function buildDuelLevel(theme: ThemeId = 'stone'): LevelDef {
+export function buildDuelLevel(theme: ThemeId = 'stone', seed = 1): LevelDef {
   const groundY = 640;
   const { width } = PHYS.world;
   const left: Builder = { blocks: [], groundY, originX: 30, dir: 1, side: 'left' };
@@ -109,6 +109,7 @@ export function buildDuelLevel(theme: ThemeId = 'stone'): LevelDef {
     theme,
     groundY,
     mode: 'duel',
+    seed,
     // 骑士（国王）站在各自城堡的前塔顶上：前塔 5 层砖 + 木梁 → 梁顶 = groundY - 220
     spawn: {
       left: { x: 30 + 400, y: groundY - 220 - PHYS.knight.height / 2 - 1 },
@@ -131,13 +132,14 @@ export function buildDemolishLevel(): LevelDef {
     theme: 'stone',
     groundY,
     mode: 'demolish',
+    seed: 1,
     spawn: { left: { x: 150, y: groundY - PHYS.knight.height / 2 - 1 } },
     blocks: b.blocks,
     ammo: fullAmmo(),
   };
 }
 
-export const LEVELS: Record<string, () => LevelDef> = {
-  'duel-1': () => buildDuelLevel('stone'),
-  'demolish-1': buildDemolishLevel,
+export const LEVELS: Record<string, (seed?: number) => LevelDef> = {
+  'duel-1': (seed) => buildDuelLevel('stone', seed ?? 1),
+  'demolish-1': () => buildDemolishLevel(),
 };

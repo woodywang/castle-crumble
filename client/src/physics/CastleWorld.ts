@@ -1,6 +1,19 @@
 import Matter from 'matter-js';
 import { CATEGORY, PHYS, SIDE_GROUP, type WeaponId } from './config';
 import type { Block, Fragment, GravityWell, Knight, LevelDef, Projectile, Side, WorldEvents, WorldStats } from './types';
+import type { WorldSnapshot } from '../net/protocol';
+
+/** mulberry32：小而确定的伪随机数生成器，多人两端用同一种子 → 同一序列 */
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 const { Engine, World, Bodies, Body, Events, Composite, Vector } = Matter;
 
@@ -30,6 +43,7 @@ export class CastleWorld {
   stats: WorldStats = { damageByOwner: {}, blocksDestroyedByOwner: {}, totalDamage: 0 };
 
   private nextId = 1;
+  private rng: () => number;
   private initialIntegrity: Record<Side, number> = { left: 0, right: 0 };
   private flagBlocks: Partial<Record<Side, Block>> = {};
   private fallenFlags = new Set<Side>();
@@ -40,6 +54,7 @@ export class CastleWorld {
 
   constructor(level: LevelDef) {
     this.level = level;
+    this.rng = mulberry32(level.seed || 1);
     this.engine = Engine.create({
       gravity: { x: 0, y: PHYS.gravityY },
       positionIterations: PHYS.positionIterations,
@@ -72,6 +87,7 @@ export class CastleWorld {
 
   private buildGround() {
     const { width } = PHYS.world;
+    const tag = (b: Matter.Body) => { (b as unknown as { gameId: number }).gameId = this.nextId++; return b; };
     const ground = Bodies.rectangle(width / 2, this.level.groundY + 40, width * 3, 80, {
       isStatic: true, label: 'ground',
       friction: PHYS.ground.friction, restitution: PHYS.ground.restitution,
@@ -80,29 +96,37 @@ export class CastleWorld {
     // 左右两侧的空气墙，防止碎片飞出世界太远
     const wallL = Bodies.rectangle(-60, 0, 100, 4000, { isStatic: true, label: 'wall', collisionFilter: { category: CATEGORY.GROUND, mask: 0xffff } });
     const wallR = Bodies.rectangle(width + 60, 0, 100, 4000, { isStatic: true, label: 'wall', collisionFilter: { category: CATEGORY.GROUND, mask: 0xffff } });
-    World.add(this.engine.world, [ground, wallL, wallR]);
+    World.add(this.engine.world, [tag(ground), tag(wallL), tag(wallR)]);
   }
+
+  /** 砖块 id → 关卡定义，供多人和解时「复活」本地误毁的砖块 */
+  private blockDefs = new Map<number, import('./types').BlockDef>();
 
   private buildCastle() {
     for (const def of this.level.blocks) {
-      const mat = PHYS.materials[def.material];
-      const body = Bodies.rectangle(def.x, def.y, def.w, def.h, {
-        label: 'block',
-        density: mat.density,
-        friction: mat.friction,
-        frictionStatic: 1,
-        restitution: mat.restitution,
-        angle: def.angle ?? 0,
-        // 让 Matter 内部 id 和我们的 id 一致，便于网络同步时按 id 引用
-        collisionFilter: { category: CATEGORY.BLOCK, mask: 0xffff },
-      });
       const id = this.nextId++;
-      const block: Block = { id, body, def, hp: mat.hp, maxHp: mat.hp, frozen: false, originX: def.x, originY: def.y };
-      (body as unknown as { gameId: number }).gameId = id;
-      this.blocks.set(id, block);
-      if (def.kind === 'flag') this.flagBlocks[def.side ?? 'right'] = block;
-      World.add(this.engine.world, body);
+      this.blockDefs.set(id, def);
+      this.createBlock(id, def, def.x, def.y, def.angle ?? 0, PHYS.materials[def.material].hp);
     }
+  }
+
+  private createBlock(id: number, def: import('./types').BlockDef, x: number, y: number, angle: number, hp: number): Block {
+    const mat = PHYS.materials[def.material];
+    const body = Bodies.rectangle(x, y, def.w, def.h, {
+      label: 'block',
+      density: mat.density,
+      friction: mat.friction,
+      frictionStatic: 1,
+      restitution: mat.restitution,
+      angle,
+      collisionFilter: { category: CATEGORY.BLOCK, mask: 0xffff },
+    });
+    const block: Block = { id, body, def, hp, maxHp: mat.hp, frozen: false, originX: def.x, originY: def.y };
+    (body as unknown as { gameId: number }).gameId = id;
+    this.blocks.set(id, block);
+    if (def.kind === 'flag') this.flagBlocks[def.side ?? 'right'] = block;
+    World.add(this.engine.world, body);
+    return block;
   }
 
   private spawnKnights() {
@@ -351,7 +375,8 @@ export class CastleWorld {
         x: body.velocity.x + nx * force * falloff,
         y: body.velocity.y + (ny - 0.35) * force * falloff, // 略带向上的抛飞感
       });
-      Body.setAngularVelocity(body, body.angularVelocity + (Math.random() - 0.5) * 0.4 * falloff);
+      // 不用随机数：爆炸结果必须在多人两端完全一致（随机只用于纯表现的碎片）
+      Body.setAngularVelocity(body, body.angularVelocity + nx * 0.3 * falloff);
       const block = this.blockOf(body);
       if (block) this.applyDamage(block, damage * falloff, ownerId, body.position.x, body.position.y);
       const knight = this.knightOf(body);
@@ -408,10 +433,10 @@ export class CastleWorld {
         collisionFilter: { category: CATEGORY.FRAGMENT, mask: CATEGORY.GROUND }, // 碎片只和地面碰，不再破坏其他砖
       });
       Body.setVelocity(body, {
-        x: block.body.velocity.x + (Math.random() - 0.5) * 8,
-        y: block.body.velocity.y - Math.random() * 6,
+        x: block.body.velocity.x + (this.rng() - 0.5) * 8,
+        y: block.body.velocity.y - this.rng() * 6,
       });
-      Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.5);
+      Body.setAngularVelocity(body, (this.rng() - 0.5) * 0.5);
       const id = this.nextId++;
       const frag: Fragment = { id, body, bornAt: this.time, material: block.def.material, w: fw * 0.8, h: fh * 0.8 };
       this.fragments.set(id, frag);
@@ -441,8 +466,77 @@ export class CastleWorld {
     k.moveDir = 0;
     // 死亡后允许翻倒，变成普通尸体刚体
     Body.setInertia(k.body, k.body.mass * 400);
-    Body.setAngularVelocity(k.body, (Math.random() - 0.5) * 0.3);
+    Body.setAngularVelocity(k.body, (this.rng() - 0.5) * 0.3);
     this.emit('knightDied', k);
+  }
+
+  /* ------------------------------------------------------------------ 多人和解快照 */
+
+  /** 清掉所有碎片（纯表现物，但会影响引擎求解顺序 → 同步前两端都清掉） */
+  clearFragments() {
+    for (const f of this.fragments.values()) Composite.remove(this.engine.world, f.body);
+    this.fragments.clear();
+  }
+
+  /** 压缩快照（房主在回合结束、世界静止时生成）；同时清掉本地碎片，与客人保持同构 */
+  getSnapshot(): WorldSnapshot {
+    this.clearFragments();
+    this.freezeAll();
+    this.canonicalizeBodyOrder();
+    // 注意：位置 / 角度不能四舍五入！角度差 0.005 rad 在 260px 的横梁两端就是 0.65px，
+    // 套用后横梁会「插进」柱子，被求解器猛地弹开 → 整座城堡自己倒掉。全精度的 JSON 一回合也只有几 KB。
+    return {
+      blocks: [...this.blocks.values()].map((b) => [b.id, b.body.position.x, b.body.position.y, b.body.angle, b.hp]),
+      knights: [...this.knights.values()].map((k) => [k.side === 'left' ? 0 : 1, k.body.position.x, k.body.position.y, k.hp, k.alive ? 1 : 0]),
+    };
+  }
+
+  /**
+   * 用房主快照校正本地世界（客人调用）。
+   * 只在世界静止时调用，直接把位置 / 角度 / HP 对齐并清零速度；本地多出来的砖块视为已被摧毁。
+   */
+  applySnapshot(s: WorldSnapshot) {
+    this.clearFragments();
+    const seen = new Set<number>();
+    for (const [id, x, y, angle, hp] of s.blocks) {
+      let b = this.blocks.get(id);
+      if (!b) {
+        // 本地已经把它打碎了，但房主那边还在 → 按快照重建
+        const def = this.blockDefs.get(id);
+        if (!def) continue;
+        b = this.createBlock(id, def, x, y, angle, hp);
+        this.emit('blockRevived', b);
+      }
+      seen.add(id);
+      Body.setPosition(b.body, { x, y });
+      Body.setAngle(b.body, angle);
+      Body.setVelocity(b.body, { x: 0, y: 0 });
+      Body.setAngularVelocity(b.body, 0);
+      if (hp !== b.hp) { b.hp = hp; this.emit('blockDamaged', b, 0, x, y); }
+    }
+    for (const b of [...this.blocks.values()]) if (!seen.has(b.id)) this.destroyBlock(b, 'sync');
+    this.clearFragments(); // destroyBlock 又会生成碎片，再清一次
+    for (const [sideIdx, x, y, hp, alive] of s.knights) {
+      const k = this.knights.get(sideIdx === 0 ? 'left' : 'right');
+      if (!k) continue;
+      Body.setPosition(k.body, { x, y });
+      Body.setVelocity(k.body, { x: 0, y: 0 });
+      if (hp !== k.hp) { k.hp = hp; this.emit('knightDamaged', k, 0, x, y); }
+      if (!alive && k.alive) this.killKnight(k);
+    }
+    this.freezeAll(); // 速度 / 受力归零 + 清接触缓存，之后两端从同一静止状态继续
+    this.canonicalizeBodyOrder();
+    this.checkFlag();
+  }
+
+  /**
+   * 把引擎里的刚体数组按 gameId 排序。
+   * 两端创建 / 销毁历史不同会导致数组顺序不同 → 碰撞对顺序不同 → 求解结果有微小差异 → 混沌放大。
+   */
+  private canonicalizeBodyOrder() {
+    const bodies = this.engine.world.bodies;
+    bodies.sort((a, b) => ((a as unknown as { gameId?: number }).gameId ?? 0) - ((b as unknown as { gameId?: number }).gameId ?? 0));
+    (Composite as unknown as { setModified: (c: Matter.Composite, m: boolean, p: boolean, ch: boolean) => void }).setModified(this.engine.world, true, true, false);
   }
 
   /* ------------------------------------------------------------------ 查询 */
@@ -496,6 +590,43 @@ export class CastleWorld {
   /** 是否所有弹体都已落地/消失（用于「弹药耗尽后等结算」） */
   isQuiet(): boolean {
     return this.projectiles.size === 0 && this.wells.length === 0;
+  }
+
+  /**
+   * 世界是否已「完全静止」：无弹体，且所有砖块 / 骑士的速度都低于阈值。
+   * 多人回合切换、打快照都必须在这个状态下进行，否则两端会从不同状态继续模拟而分叉。
+   */
+  isSettled(): boolean {
+    if (!this.isQuiet()) return false;
+    const { linear, angular } = PHYS.duel.settle;
+    for (const b of this.blocks.values()) {
+      const v = b.body.velocity;
+      if (Math.abs(v.x) > linear || Math.abs(v.y) > linear || Math.abs(b.body.angularVelocity) > angular) return false;
+    }
+    for (const k of this.knights.values()) {
+      const v = k.body.velocity;
+      if (Math.abs(v.x) > linear || Math.abs(v.y) > linear) return false;
+    }
+    return true;
+  }
+
+  /** 强制静止：清零所有砖块 / 骑士速度与受力（打快照的一方调用，让本地状态与快照完全一致） */
+  freezeAll() {
+    for (const b of this.blocks.values()) {
+      Body.setVelocity(b.body, { x: 0, y: 0 }); Body.setAngularVelocity(b.body, 0);
+      b.body.force = { x: 0, y: 0 }; b.body.torque = 0;
+    }
+    for (const k of this.knights.values()) { Body.setVelocity(k.body, { x: 0, y: 0 }); k.body.force = { x: 0, y: 0 }; }
+    this.resetContacts();
+  }
+
+  /**
+   * 清空求解器的接触对缓存。
+   * Matter 的 Resolver 会用上一帧接触的冲量做「热启动」；砖块被快照瞬移后，
+   * 旧冲量会套到新的排布上，等于给整个结构来一脚 → 城堡莫名其妙自己塌掉。
+   */
+  private resetContacts() {
+    Matter.Pairs.clear(this.engine.pairs);
   }
 
   destroy() {

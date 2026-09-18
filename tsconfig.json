@@ -4,7 +4,8 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": [
-      "ES2022"
+      "ES2022",
+      "DOM"
     ],
     "types": [
       "node"
@@ -15,8 +16,9 @@
     "noEmit": true
   },
   "include": [
-    "src",
-    "../api",
-    "../client/src/net/protocol.ts"
+    "api",
+    "server/src",
+    "client/src/net/protocol.ts",
+    "client/src/physics"
   ]
 }
