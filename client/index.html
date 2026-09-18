@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Castle Crumble · 拆城堡</title>
+  <link rel="stylesheet" href="/src/ui/styles.css" />
+</head>
+<body>
+  <div id="game"></div>
+
+  <!-- 游戏内 HUD（HTML overlay，pointer-events 默认穿透到 canvas） -->
+  <div id="hud" hidden>
+    <div class="hud-top">
+      <div class="bar integrity mine" id="my-bar" title="我方城堡">
+        <div id="my-fill" class="fill"></div>
+        <span id="my-text">我方城堡 100%</span>
+      </div>
+      <div id="turn-text" class="pill turn"></div>
+      <div id="damage-text" class="pill">伤害 0</div>
+      <div class="bar integrity enemy" title="敌方城堡">
+        <div id="integrity-fill" class="fill"></div>
+        <span id="integrity-text">敌方城堡 100%</span>
+      </div>
+    </div>
+    <div id="weapons" class="weapons"></div>
+    <div class="bar power" id="power-bar" hidden>
+      <div id="power-fill" class="fill"></div>
+      <span>蓄力</span>
+    </div>
+    <div id="mobile-controls" hidden>
+      <button id="btn-melee" class="round-btn">⚔️</button>
+    </div>
+    <div id="hint" class="hint">
+      <span class="pc">A/D 移动 · 鼠标瞄准 · 按住左键蓄力，松开发射 · 空格近战 · 1-5 切武器 · R 重开</span>
+      <span class="mobile">左下拖动移动 · 右侧按住瞄准蓄力，松开发射 · ⚔️ 近战</span>
+    </div>
+  </div>
+
+  <!-- 主菜单 -->
+  <div id="menu" class="modal">
+    <div class="card">
+      <h1>🏰 Castle Crumble</h1>
+      <p class="sub">物理连锁崩塌 · 卡通骑士 · 实时多人</p>
+      <label class="field">昵称 <input id="name-input" maxlength="12" placeholder="骑士" /></label>
+      <div class="skins" id="skins"></div>
+      <button id="btn-duel" class="primary">⚔️ 双城对轰 · 对战 AI</button>
+      <button id="btn-single" class="secondary">训练：拆城堡</button>
+      <div class="row">
+        <button id="btn-create" disabled title="第 2 步实现">创建房间</button>
+        <input id="room-input" placeholder="房间号" disabled />
+        <button id="btn-join" disabled title="第 2 步实现">加入房间</button>
+      </div>
+      <p class="note">多人对轰房间将在第 2 步接入（Socket.io 权威物理）。</p>
+    </div>
+  </div>
+
+  <!-- 结算 -->
+  <div id="result" class="modal" hidden>
+    <div class="card">
+      <h2 id="result-title">胜利！</h2>
+      <p id="result-reason"></p>
+      <ul id="result-stats"></ul>
+      <div class="row">
+        <button id="btn-retry" class="primary">再来一局</button>
+        <button id="btn-menu">回主菜单</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
